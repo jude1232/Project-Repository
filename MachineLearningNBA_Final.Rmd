@@ -1,0 +1,339 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+
+"Predicting the Final Standings of the NBA Season"
+
+*Jude Kappel*
+
+**Introduction**
+
+What is the insight I am trying to analyze?
+
+I have two goals for this project. I am interested in predicting the standings of the NBA teams after a regular season based on a variety of factors such as points scored, wins, et cetera. As a secondary goal for this project, I plan on using the data to assess whether paying for higher level players and paying them more money (higher salary) corresponds with a higher win percentage or higher season rank for that season. Analyzing the NBA team salaries and if they correspond to higher win percentages will provide insight to people who care about the NBA. Coaches, GMs, news outlets, and fans are the target audience for this study. If the model performs better than the given odds for a season, it could be used for betting on outcomes of the season, and can be used to make money. Other than the obvious moneymaking implications, the prediction tools developed for this project could be useful in the predictions of future seasons based on the factors discussed in the project. The project includes advanced statistics on basketball games for each season.
+
+**Data**
+
+The variety of NBA statistics used in this project are provided by Kaggle.com for machine learning. The data includes observations on game details, seasons, salaries of individual players, rankings, and more. The unit of observation for this project varies by dataset. The end goal for the unit of observation is to get data where each observation is a single team for one season. The different NBA datasets have different units of observation. For example, the unit of observation for the games_details data is a single game, while the rankings data's unit of observation is a single season.
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(stargazer)
+library(lubridate)
+nba_salaries <- read_csv("nbasalaries.csv")
+nba_games <- read_csv("games.csv")
+nba_teams <- read_csv("teams.csv") %>%
+  select(TEAM_ID, ABBREVIATION, NICKNAME)
+game_details <- read_csv("games_details.csv") #%>%
+  #select(GAME_ID, TEAM_ID,TEAM_ABBREVIATION, TEAM_CITY)
+
+rankings <- read_csv("ranking.csv")
+head(rankings)
+nrow(rankings)
+n_distinct(rankings$TEAM)
+n_distinct(rankings$TEAM_ID)
+```
+
+There are 34 distinct teams in the rankings data. This is odd, since there are only 30 teams in the NBA. If we look at the distinct TEAM_ID, we realize that we get the true number, 30. This variation is due to 2 teams that changed their names and cities in the early 2000's. These teams are the Seattle Supersonics (who became the Oklahoma City Thunder), and the Charlotte Bobcats (who became the Charlotte Hornets). The goal now is to get a final standing observation for each team, each year.
+
+```{r warning=FALSE, message=FALSE}
+team_season <- rankings %>%
+  group_by(SEASON_ID,TEAM_ID, CONFERENCE) %>%
+  arrange(desc(STANDINGSDATE)) %>%
+  mutate(month = month(STANDINGSDATE)) %>%
+  filter(G == max(G)) %>%
+  mutate(year = year(STANDINGSDATE)) %>%
+  filter(month <= 6)
+```
+
+Creating a season classification for each combination of seasons.
+
+```{r warning=FALSE, message=FALSE}
+team_season <- team_season %>%
+  mutate(Season = case_when(
+    SEASON_ID == 22021 | SEASON_ID == 12021 ~ "2021-2022",
+    SEASON_ID == 22020 | SEASON_ID == 12020 ~ "2020-2021",
+    SEASON_ID == 22019 | SEASON_ID == 12019 ~ "2019-2020",
+    SEASON_ID == 22018 | SEASON_ID == 12018 ~ "2018-2019",
+    SEASON_ID == 22017 | SEASON_ID == 12017 ~ "2017-2018",
+    SEASON_ID == 22016 | SEASON_ID == 12016 ~ "2016-2017",
+    SEASON_ID == 22015 | SEASON_ID == 12015 ~ "2015-2016",
+    SEASON_ID == 22014 | SEASON_ID == 12014 ~ "2014-2015",
+    SEASON_ID == 22013 | SEASON_ID == 12013 ~ "2013-2014",
+    SEASON_ID == 22012 | SEASON_ID == 12012 ~ "2012-2013",
+    SEASON_ID == 22011 | SEASON_ID == 12011 ~ "2011-2012",
+    SEASON_ID == 22010 | SEASON_ID == 12010 ~ "2010-2012",
+    SEASON_ID == 22009 | SEASON_ID == 12009 ~ "2009-2010",
+    SEASON_ID == 22008 | SEASON_ID == 12008 ~ "2008-2009",
+    SEASON_ID == 22007 | SEASON_ID == 12007 ~ "2007-2008",
+    SEASON_ID == 22006 | SEASON_ID == 12006 ~ "2006-2007",
+    SEASON_ID == 22005 | SEASON_ID == 12005 ~ "2005-2006",
+    SEASON_ID == 22004 | SEASON_ID == 12004 ~ "2004-2005",
+    SEASON_ID == 22003 | SEASON_ID == 12003 ~ "2003-2004",
+    SEASON_ID == 22002 | SEASON_ID == 12002 ~ "2002-2003"
+  )) 
+```
+
+Now we have the seasons classified, we realize that the teams are already ranked by their final standings even though that fact is not explicity stated. We can use the final rankings to filter out any unwanted observations. Since the data is daily, there is a large number of observations that are not in the actual season but still are ranked, confounding the data. Filtering out observations that are greater than 30 will output the correct number of observations per season.
+
+```{r warning=FALSE, message=FALSE}
+team_season_ranked <- team_season %>%
+  group_by(CONFERENCE, Season) %>%
+  mutate(season_rank = rank(desc(-row_number()))) %>%
+   mutate(first_half_flag = 
+         ifelse(SEASON_ID == 22021 |
+                SEASON_ID == 22020 |
+                SEASON_ID == 22019 |
+                SEASON_ID == 22018 |
+                SEASON_ID == 22017 |
+                SEASON_ID == 22016 |
+                SEASON_ID == 22015 |
+                SEASON_ID == 22014 |
+                SEASON_ID == 22013 |
+                SEASON_ID == 22012 |
+                SEASON_ID == 22011 |
+                SEASON_ID == 22010 |
+                SEASON_ID == 22009 |
+                SEASON_ID == 22008 |
+                SEASON_ID == 22007 |
+                SEASON_ID == 22006 |
+                SEASON_ID == 22005 |
+                SEASON_ID == 22004 |
+                SEASON_ID == 22003 |
+                SEASON_ID == 22002, "1","0")) %>%
+  filter(first_half_flag == "1") %>%
+  filter(season_rank <= 30) %>%
+  filter(Season > "2003-2004")
+summary(team_season_ranked$season_rank)
+```
+
+Let's try to get more season level statistics to make the dataset even better. The purpose of this code chunk is to manipulate the column names and what they say to be consistent with the nomenclature and conventions of the ranking dataset. This will get us one step closer to creating a dataset with team statistics to be used for regression analysis and refining the prediction model.
+
+```{r warning=FALSE, message=FALSE}
+nba_games <- nba_games %>%
+  rename(TEAM_ID = `HOME_TEAM_ID`) %>%
+  rename(STANDINGSDATE =`GAME_DATE_EST`)
+nba_games <- nba_games %>%   
+ arrange(desc(STANDINGSDATE)) %>%
+  mutate(month = month(STANDINGSDATE)) %>%
+  mutate(year = year(STANDINGSDATE)) %>%
+  mutate(Season = case_when(
+    SEASON == 2021 ~ "2021-2022",
+    SEASON == 2020 ~ "2020-2021",
+    SEASON == 2019 ~ "2019-2020",
+    SEASON == 2018 ~ "2018-2019",
+    SEASON == 2017 ~ "2017-2018",
+    SEASON == 2016 ~ "2016-2017",
+    SEASON == 2015 ~ "2015-2016",
+    SEASON == 2014 ~ "2014-2015",
+    SEASON == 2013 ~ "2013-2014",
+    SEASON == 2012 ~ "2012-2013",
+    SEASON == 2011 ~ "2011-2012",
+    SEASON == 2010 ~ "2010-2011",
+    SEASON == 2009 ~ "2009-2010",
+    SEASON == 2008 ~ "2008-2009",
+    SEASON == 2007 ~ "2007-2008",
+    SEASON == 2006 ~ "2006-2007",
+    SEASON == 2005 ~ "2005-2006",
+    SEASON == 2004 ~ "2004-2005",
+    SEASON == 2003 ~ "2003-2004",
+    SEASON == 2002 ~ "2002-2003"
+  ))
+```
+
+In this chunk of code, I'm creating a new dataframe that summarizes the data by season. The purpose of this is to join the games that has descriptive statistics for each game, each season with the ranking data. The data here will be useful for predicting the final rankings of the current NBA season.
+
+```{r warning=FALSE, message=FALSE}
+nba_games_mas <- nba_games %>%
+    group_by(TEAM_ID,Season) %>%
+  summarize(sum_points_scored = mean(PTS_home),
+            sum_points_away = mean(PTS_away),
+            FG_PCT_home = mean(FG_PCT_home),
+            FG_PCT_away = mean(FG_PCT_away),
+            FT_PCT_home = mean(FT_PCT_home),
+            FT_PCT_away = mean(FT_PCT_home),
+            REB_away = mean(REB_away),
+            REB_home = mean(REB_home),
+            AST_home = mean(AST_home),
+            AST_away = mean(AST_away)) 
+#  filter(Season != "2003-2004")
+```
+
+**Exploration**
+
+We now have complete observations from the 2004 season onward. The next step is to start building a regression model that can predict the ranking of the NBA season. We will split the data into training and testing datasets. The test data will be the current season, and the train data will be all of the seasons previously. Using the current NBA season has proved to have too many inconsistencies, and the 2020-2021 season has proved to be a much better test data set.
+
+The following variables will be key in the prediction of the final standings of the NBA season. Since I believe that defensively solid teams matter and will do better in rankings, I've decided to include defensive statistics in the regression analysis. Below are the significant explantory variables to be used in the analysis. The following code joins the two dataframes and filters out duplicate observations for each season.
+
+```{r warning=FALSE, message=FALSE}
+ranked_teamgame_season <- inner_join(nba_games_mas, team_season_ranked, by=c("TEAM_ID","Season")) %>%
+  group_by(Season) %>%
+  filter(duplicated(TEAM_ID))
+```
+
+The dataframe ranked_teamgame_season fulfills the same purpose as team_season_ranked, except better. We were able to filter out all unwanted observations and the 2003-2004 season, since it was causing problems and data was unavailable for that season, so unfortunately it had to be cut.
+
+Variables:
+
+-   sum_points_scored Mean of points scored each season
+-   sum_points_away Mean points allowed each season
+-   FG_PCT_home Field Goal percentage by the home team, average
+-   FG_PCT_away Field Goal percentage by the opposing team, average
+-   REB_home Rebounds by the home team, average
+-   Reb_away Rebounds by the opposing team, average
+-   season_rank Team rank at the end of each season
+-   CONFERENCE indicates a team's conference
+-   W_PCT indicates a team's win percentage
+-   W total wins per season
+-   L total losses per season
+-   pred a prediction of final standing based on the third regression
+
+*NOTE*: "opposing team" refers to the individual team in a game. Since the data is summarized by season, the measure of opposing team stats is averaged across the season, not any particular opponent.
+
+```{r warning=FALSE, message=FALSE}
+ranked_teamgame_season <- as.data.frame(ranked_teamgame_season)
+stargazer(select(ranked_teamgame_season, season_rank, CONFERENCE, sum_points_away, sum_points_scored, W_PCT, W, L, REB_away), type = "text", median = TRUE)
+#stargazer(select(ranked_teamgame_season, CONFERENCE), type = "text", median = TRUE)
+#stargazer(select(ranked_teamgame_season, sum_points_away), type = "text", median = TRUE)
+#stargazer(select(ranked_teamgame_season, sum_points_scored), type = "text", median = TRUE)
+#stargazer(select(ranked_teamgame_season, W_PCT), type = "text", median = TRUE)
+#stargazer(select(ranked_teamgame_season, W), type = "text", median = TRUE)
+#stargazer(select(ranked_teamgame_season, L), type = "text", median = TRUE)
+#stargazer(select(ranked_teamgame_season, REB_away), type = "text", median = TRUE)
+```
+
+**Statistical Analysis**\_
+
+First Regression attempt. This regression is based on the original attempt at creating testing and training datasets.
+
+The unit of observation for the new dataset "team_season_ranked" is a single team. We have data on every team, for every season, over the last 18 seasons. We have our data grouped by season and conference, so now the rankings are relatively accurate and can be used for predicting the final standings of the current NBA season. In the following code chunk, the data is split into training and test datasets.
+
+```{r warning=FALSE, message=FALSE}
+nba_train <- team_season_ranked %>%
+  filter(Season != "2021-2022")
+nba_test <- team_season_ranked %>%
+  filter(Season == "2021-2022")
+```
+```{r warning=FALSE, message=FALSE}
+library(descr)
+nba_reg <- lm(season_rank ~ W_PCT, data = nba_train)
+summary(nba_reg)
+nba_test$pred <- predict(nba_reg, nba_test)
+
+ggplot(nba_test, aes(x=nba_test$season_rank, y=nba_test$pred)) + geom_point() + geom_line(aes(x=nba_test$season_rank, y=nba_test$season_rank), color="red") + ggtitle("Preliminary Prediction Regression")
+```
+
+Its clear that there are some problems with the scatter plot. Adding more explanatory variables may be the key to improving the model and getting accurate predictions. Adding the team's wins and losses may prove useful, although they are effectively a proxy for win percentage, so there might be correlation between the three variables.  The predicted rankings are above are above the red line, and the actual rankings are below the red line.
+
+```{r warning=FALSE, message=FALSE}
+nba_reg_1 <- lm(season_rank ~ W_PCT + W + L + CONFERENCE, data = nba_train)
+summary(nba_reg_1)
+nba_test$pred_1 <- predict(nba_reg, nba_test)
+
+ggplot(nba_test, aes(x=nba_test$season_rank, y=nba_test$pred)) + geom_point() + geom_line(aes(x=nba_test$season_rank, y=nba_test$season_rank), color="red") + ggtitle("Second Prediction Regression")
+
+sqrt(mean(((nba_test$pred-nba_test$season_rank)/nba_test$season_rank)^2))
+```
+
+**Prediction Setup**
+
+In this chunk, we put the new cleaned and massaged data to the test in order to take advantage of the game statistics data. Based on the high RMSE of the second regression, it's clear that some work needs to be done to reduce that number and create a prediction tool that is capable of accurately determining the final results of the NBA season.
+
+```{r warning=FALSE, message=FALSE}
+ranked_test <- ranked_teamgame_season %>%
+  filter(Season == "2020-2021") 
+ranked_test$HOME_RECORD <- as.character(ranked_test$HOME_RECORD)
+ranked_train <- ranked_teamgame_season %>%
+  filter(Season <= "2020-2021")
+```
+
+**Model**
+
+The final statistical model used in this project will be a linear regression with refined data including aggregated season level game statistics. The dependent variable of the regression is the season_rank variable. The key explanatory variables used in this regression are the sum_points_away variable, which represents the mean points scored on a team in a game, per season, W, which represents total wins in a season, W_PCT, which represents the team's win percentage each season, REB_Away, which represents average rebounds by the opposing team each game, each season. Other variables include CONFERENCE, which indicates the team's conference, L, which represents a team's total losses, FG_PCT_away, which represents the average accuracy from the field of the opposing team each game, each season.
+
+```{r warning=FALSE, message=FALSE}
+ranked_reg <- lm(season_rank ~ sum_points_away + FG_PCT_away + REB_away + W + FG_PCT_home + W_PCT + L + CONFERENCE, data = ranked_train)
+summary(ranked_reg)
+ranked_test$pred <- predict(ranked_reg, ranked_test)
+round((ranked_test$pred),0)
+```
+
+Now that the dataframe and regression are complete, let's plot the predicted and actual results of the final standings of the NBA season to see if the predictions are accurate or not. It seems that certain variables are significant determinants of a team's final ranking.
+
+```{r warning=FALSE, message=FALSE}
+ggplot(ranked_test, aes(x=ranked_test$season_rank, y=ranked_test$pred, color=TEAM_ID)) + geom_point() + geom_line(aes(x=ranked_test$season_rank, y=ranked_test$season_rank), color="red") + ggtitle("Third Predictive Regression")
+```
+
+Let's measure the RMSE to make sure we are doing better compared to the predictions of the first model.
+
+```{r warning=FALSE, message=FALSE}
+ranked_test$pred <- as.numeric(ranked_test$pred)
+sqrt(mean(((ranked_test$pred-ranked_test$season_rank)/ranked_test$season_rank)^2))
+```
+
+**Analysis**
+
+In the case of predicting season rank based on descriptive statistics of the NBA season, there are a few variables that are significant in a linear regression. A negative coefficient indicates that an increase in a particular statistic causes a decrease in predicted rank, or in other words, the team is predicted to do better. Some of the results were surprising in the linear regression. For example, a 1 point increase in the average points scored on a team (sum_points_away) actually causes a 13 percent decrease in a team's predicted ranking. Interestingly, some variables that were expected to be significant were not. For example, both allowed field goal percentage and rebounds allowed were not significant in the regression, while a 1 percent increase in field goal percentage for the reference team was only significant at the 10 percent significance level.
+
+So, with the new dataframe and regression model, we find that the mean squared error is much smaller than the previous regressions. This means that the predictions are much more accurate, and is more useful for predicting the final standings of the NBA season. This code creates a measure of accuracy of our predictions to be used for analysis. The first regression had a RMSE of \~ 2.23, while the new regression has a RMSE of \~ 0.142.
+
+```{r warning=FALSE, message=FALSE}
+ranked_test <- ranked_test %>%
+  mutate(average_error = (abs((pred-season_rank)/season_rank)*100)) %>%
+  mutate(accurate = ifelse(average_error <= 20, "1", "0")) %>%
+  mutate(control = ifelse(season_rank > 0 , "1" ,"0"))
+crosstab(ranked_test$accurate, ranked_test$control, prop.t = TRUE, plot = FALSE)
+```
+
+The control variable is represents if all of the predictions are accurate. In other words, in the data, the control variable always equals 1, indicating a correct prediction. This is likely not the case, so we can use the prediction tool to compare against the control variable. The results will indicate the accuracy of the prediction tool.  According to our error comparison model, our model predicts the final standings accurately 86.7 percent of the time.
+
+Now that we have a relatively accurate predictions regarding the NBA season, one of the main goals for this project is  achieved.  Let's now shift our focus to something else.  Team salary is thought to be a major component of a team's success, because paying more for better players must mean that the team will do better because higher caliber players command a higher salary.  We have data on total team salary so let's try and merge it with our games data to see if NBA team salary correlates with better performance throughout the NBA season.
+
+```{r warning=FALSE, message=FALSE}
+nba_salaries_season <- nba_salaries %>%
+  group_by(team, season) %>%
+  summarise(avg_yearly_salary = sum(salary))
+
+ggplot(nba_salaries_season) + geom_line(aes(y=avg_yearly_salary, x= season, color = team)) + coord_cartesian(xlim = c(2000, 2021)) + theme(legend.position="none") + ggtitle("NBA Team Salaries Over Time")
+```
+
+We can see that there is a general upward trend in salaries, perhaps due to nonstationarity.  Let's see if we can clear up the plot a bit and visualize the top 5 teams in terms of spending on their rosters for 2020, and see how they've changed over time.
+
+```{r warning=FALSE, message=FALSE}
+top5teams <- nba_salaries_season %>%
+  group_by(season) %>%
+  arrange(desc(avg_yearly_salary)) %>%
+  filter(team == "Minnesota Timberwolves" | 
+         team == "Memphis Grizzlies" |
+         team == "LA Clippers" | 
+         team == "Washington Wizards" |
+         team == "Philadelphia 76ers")
+
+ggplot(top5teams) + geom_line(aes(y=avg_yearly_salary, x= season, color = team)) + coord_cartesian(xlim = c(2000, 2021)) + theme(legend.position="none") + ggtitle(" Top 5 NBA Salaries Over Time")
+```
+```{r warning=FALSE, message=FALSE}
+top5teams <- top5teams %>%
+  mutate(TEAM_ID = case_when(
+    team == "Minnesota Timberwolves" ~ 1610612750,
+    team == "Philadelphia 76ers" ~ 1610612755,
+    team == "LA Clippers" ~ 1610612746,
+    team == "Washington Wizards" ~ 1610612764,
+    team == "Memphis Grizzlies" ~ 1610612763
+  ))
+top5teamsmerge <- inner_join(top5teams, ranked_teamgame_season, by=c("TEAM_ID", "season"="year"))
+
+cor(top5teamsmerge$avg_yearly_salary, top5teamsmerge$season_rank)
+
+ggplot(top5teamsmerge, aes(y=avg_yearly_salary, x=season_rank, color=TEAM_ID)) + geom_point() + geom_smooth(method = "lm") + ggtitle(" Top 5 NBA Salary Scatterplot Over Time")
+```
+
+The correlation coefficient between the two variables is -0.4887, indicating a relatively strong relationship between average yearly salary and season rank.  The scatterplot of the 5 teams further exemplifies this idea, indicating a negative relationship between the two variables. The less a team spends on their roster, the higher their season ranking (higher = closer to last, a rank of 30 = last place.). Based on this evidence, we can conclude that paying more money each year for your roster as an NBA team indicates an increase in the chances that your team will perform better. It is interesting to note that these teams, despite paying the most over time, still only finished around middle of the pack in terms of rankings. 
+
+
+**Conclusion**
+
+According to our model, we predicted the standings of the 2020-2021 NBA season with 86 percent accuracy. The prediction model can be used to take past values of the NBA season and predict the current standings of the NBA season. Out of 30 possible correct predictions, the prediction tool correctly predicted 26. An interesting finding of the regression analysis is that being in the Western Conference increases a team's predicted ranking by .799 percent. This effect could be called the "Western Conference penalty". This went against expectations, considering the fact that the Western conference's reputation in the last few years in particular. While the analysis in this paper is interesting to think about in terms of the predictions, useful information for team executives such as GM's are found in this project. While obviously the Western conference penalty is a result of past season trends, there are actionable results found in the regression analysis. Almost, if not all of the stats in this paper on NBA teams can be impacted by targeted conditioning. For example, tightening up defense and allowing less points to be scored on you can lead to a salient increase in chances of placing better in the final standings. It's all about the end result, after all.  In regards to salary, the findings in the secondary portion of the project are actionable.  It's safe to say that getting better players for your team will generally lead to a more favorable outcome in terms of your final standing, but the data indicates that there is a relationship between the amount of money a team spends on their roster and their final rank at the end of the NBA season.
+
+References: <https://www.kaggle.com/datasets/nathanlauga/nba-games?resource=download>
